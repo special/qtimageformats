@@ -12,6 +12,8 @@ qtConfig(webp): SUBDIRS += webp
 
 darwin: SUBDIRS += macheif
 
+qtConfig(heif):!darwin: SUBDIRS += heif
+
 qtConfig(regularexpression): \
     SUBDIRS += icns
 

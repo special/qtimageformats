@@ -9,6 +9,7 @@
         "options": {
             "jasper": { "type": "boolean" },
             "mng": { "type": "boolean" },
+            "heif": { "type": "boolean" },
             "tiff": { "type": "enum", "values": [ "no", "qt", "system" ] },
             "webp": { "type": "enum", "values": [ "no", "qt", "system" ] }
         }
@@ -68,6 +69,27 @@
             },
             "sources": [
                 "-lmng"
+            ]
+        },
+        "heif": {
+            "headers": [
+                "memory",
+                "libheif/heif.h"
+            ],
+            "test": {
+                "main": [
+                    "std::shared_ptr<heif_context> ctx(heif_context_alloc(),",
+                    "[] (heif_context* c) { heif_context_free(c); });",
+                    "if (!ctx) {",
+                    "return 1;",
+                    "}",
+                    "heif_image_handle* handle = nullptr;",
+                    "heif_image* img = nullptr;",
+                    "heif_encoder* encoder = nullptr;"
+                ]
+            },
+            "sources": [
+                "-lheif"
             ]
         },
         "tiff": {
@@ -165,6 +187,12 @@
             "condition": "libs.mng",
             "output": [ "privateFeature" ]
         },
+        "heif": {
+            "label": "HEIF",
+            "disable": "input.heif == 'no'",
+            "condition": "libs.heif",
+            "output": [ "privateFeature" ]
+        },
         "tiff": {
             "label": "TIFF",
             "disable": "input.tiff == 'no'",
@@ -203,6 +231,7 @@
             "entries": [
                 "jasper",
                 "mng",
+                "heif",
                 "tiff", "system-tiff",
                 "webp", "system-webp"
             ]
