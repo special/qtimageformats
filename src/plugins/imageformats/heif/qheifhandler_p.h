@@ -87,11 +87,14 @@ private:
     {
         ReadState(std::shared_ptr<heif_context>&& ctx,
                   std::vector<heif_item_id>&& ids,
-                  int index);
+                  int primaryIndex);
 
         const std::shared_ptr<heif_context> context;
         const std::vector<heif_item_id> idList;
-        int currentIndex{};
+        int currentIndex = -1;
+        std::shared_ptr<heif_image_handle> imageHandle;
+
+        bool setCurrentIndex(int index);
     };
 
     /**

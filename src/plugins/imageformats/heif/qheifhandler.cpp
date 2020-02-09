@@ -214,11 +214,30 @@ static struct heif_reader qheif_reader = {
 
 QHeifHandler::ReadState::ReadState(std::shared_ptr<heif_context>&& ctx,
                                    std::vector<heif_item_id>&& ids,
-                                   int index) :
-    context(std::move(ctx)),
-    idList(std::move(ids)),
-    currentIndex(index)
+                                   int primaryIndex)
+    : context(std::move(ctx))
+    , idList(std::move(ids))
 {
+    setCurrentIndex(primaryIndex);
+}
+
+bool QHeifHandler::ReadState::setCurrentIndex(int index)
+{
+    if (currentIndex == index) {
+        return true;
+    } else if (index < 0 || index >= idList.size()) {
+        return false;
+    }
+    currentIndex = index;
+
+    heif_image_handle* handlePtr = nullptr;
+    auto error = heif_context_get_image_handle(context.get(), idList[index], &handlePtr);
+    imageHandle = std::shared_ptr<heif_image_handle>(handlePtr, heif_image_handle_release);
+    if (error.code || !imageHandle) {
+        qDebug("QHeifHandler::read() failed to get image handle: %s", error.message);
+        return false;
+    }
+    return true;
 }
 
 void QHeifHandler::loadContext()
@@ -271,11 +290,8 @@ void QHeifHandler::loadContext()
         return;
     }
 
-    int currentIndex = static_cast<int>(iter - idList.begin());
-
-    _readState.reset(new ReadState{std::move(context),
-                                   std::move(idList),
-                                   currentIndex});
+    int primaryIndex = static_cast<int>(iter - idList.begin());
+    _readState.reset(new ReadState{std::move(context), std::move(idList), primaryIndex});
 }
 
 bool QHeifHandler::read(QImage* destImage)
@@ -286,30 +302,14 @@ bool QHeifHandler::read(QImage* destImage)
     }
 
     loadContext();
-
-    if (!_readState) {
+    if (!_readState || !_readState->imageHandle) {
         qWarning("QHeifHandler::read() failed to create context");
-        return false;
-    }
-
-    int idIndex = _readState->currentIndex;
-    Q_ASSERT(idIndex >= 0 && static_cast<size_t>(idIndex) < _readState->idList.size());
-
-    auto id = _readState->idList[idIndex];
-
-    // get image handle
-    heif_image_handle* handlePtr = nullptr;
-    auto error = heif_context_get_image_handle(_readState->context.get(), id, &handlePtr);
-
-    auto handle = wrapPointer(handlePtr, heif_image_handle_release);
-    if (error.code || !handle) {
-        qDebug("QHeifHandler::read() failed to get image handle: %s", error.message);
         return false;
     }
 
     // decode image
     heif_image* srcImagePtr = nullptr;
-    error = heif_decode_image(handle.get(),
+    auto error = heif_decode_image(_readState->imageHandle.get(),
                               &srcImagePtr,
                               heif_colorspace_RGB,
                               heif_chroma_interleaved_RGBA,
@@ -381,12 +381,7 @@ bool QHeifHandler::jumpToImage(int index)
         return false;
     }
 
-    if (index < 0 || static_cast<size_t>(index) >= _readState->idList.size()) {
-        return false;
-    }
-
-    _readState->currentIndex = index;
-    return true;
+    return _readState->setCurrentIndex(index);
 }
 
 bool QHeifHandler::jumpToNextImage()
@@ -563,7 +558,19 @@ bool QHeifHandler::write(const QImage& preConvSrcImage)
 QVariant QHeifHandler::option(ImageOption opt) const
 {
     Q_UNUSED(opt);
-    return {};
+    switch (opt) {
+    case Size:
+        const_cast<QHeifHandler*>(this)->loadContext();
+        if (!_readState || !_readState->imageHandle) {
+            qWarning("QHeifHandler::read() failed to create context");
+            return QSize();
+        }
+        return QSize(heif_image_handle_get_width(_readState->imageHandle.get()),
+                     heif_image_handle_get_height(_readState->imageHandle.get()));
+
+    default:
+        return {};
+    }
 }
 
 void QHeifHandler::setOption(ImageOption opt, const QVariant& value)
@@ -587,5 +594,6 @@ void QHeifHandler::setOption(ImageOption opt, const QVariant& value)
 
 bool QHeifHandler::supportsOption(ImageOption opt) const
 {
-    return opt == Quality;
+    return opt == Quality
+            || opt == Size;
 }
