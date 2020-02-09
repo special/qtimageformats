@@ -155,23 +155,66 @@ std::unique_ptr<T, D> wrapPointer(T* ptr, D deleter)
     return std::unique_ptr<T, D>(ptr, deleter);
 }
 
-template<class... As>
-heif_error readContext(As... as)
+int64_t qheif_reader_get_position(void* userdata)
 {
-#if LIBHEIF_NUMERIC_VERSION >= 0x01030000
-    return heif_context_read_from_memory_without_copy(as...);
-#else
-    return heif_context_read_from_memory(as...);
-#endif
+    QIODevice* device = reinterpret_cast<QIODevice*>(userdata);
+    return device->pos();
 }
+
+int qheif_reader_read(void* data, size_t size, void* userdata)
+{
+    QIODevice* device = reinterpret_cast<QIODevice*>(userdata);
+    char* charData = reinterpret_cast<char*>(data);
+    while (size) {
+        // TODO: is this safe use of size_t?
+        qint64 rd = device->read(charData, size);
+        if (rd < 0) {
+            return rd;
+        } else if (static_cast<size_t>(rd) < size) {
+            size -= rd;
+            charData += rd;
+            continue;
+        }
+        break;
+    }
+    return 0;
+}
+
+int qheif_reader_seek(int64_t pos, void* userdata)
+{
+    QIODevice* device = reinterpret_cast<QIODevice*>(userdata);
+    if (device->isSequential()) {
+        return -1;
+    }
+    return device->seek(pos) ? 0 : -1;
+}
+
+// TODO: It seems like seeking is mandatory, so sequential devices would have to have some kind of buffer.
+// Do something about that.
+
+heif_reader_grow_status qheif_reader_wait_for_file_size(int64_t target_size, void* userdata)
+{
+    QIODevice* device = reinterpret_cast<QIODevice*>(userdata);
+    if (device->size() >= target_size) {
+        return heif_reader_grow_status_size_reached;
+    } else {
+        return heif_reader_grow_status_size_beyond_eof;
+    }
+}
+
+static struct heif_reader qheif_reader = {
+    .reader_api_version = 1,
+    .get_position = qheif_reader_get_position,
+    .read = qheif_reader_read,
+    .seek = qheif_reader_seek,
+    .wait_for_file_size = qheif_reader_wait_for_file_size
+};
 
 }  // namespace
 
-QHeifHandler::ReadState::ReadState(QByteArray&& data,
-                                   std::shared_ptr<heif_context>&& ctx,
+QHeifHandler::ReadState::ReadState(std::shared_ptr<heif_context>&& ctx,
                                    std::vector<heif_item_id>&& ids,
                                    int index) :
-    fileData(std::move(data)),
     context(std::move(ctx)),
     idList(std::move(ids)),
     currentIndex(index)
@@ -191,14 +234,6 @@ void QHeifHandler::loadContext()
         return;
     }
 
-    // read file
-    auto fileData = device()->readAll();
-
-    if (fileData.isEmpty()) {
-        qDebug("QHeifHandler::loadContext() failed to read file data");
-        return;
-    }
-
     // set up new context
     std::shared_ptr<heif_context> context(heif_context_alloc(), heif_context_free);
     if (!context) {
@@ -206,8 +241,9 @@ void QHeifHandler::loadContext()
         return;
     }
 
-    auto error = readContext(context.get(),
-                             fileData.constData(), fileData.size(), nullptr);
+    auto error = heif_context_read_from_reader(context.get(), &qheif_reader,
+                                               reinterpret_cast<void*>(device()),
+                                               nullptr);
     if (error.code) {
         qDebug("QHeifHandler::loadContext() failed to read context: %s", error.message);
         return;
@@ -237,8 +273,7 @@ void QHeifHandler::loadContext()
 
     int currentIndex = static_cast<int>(iter - idList.begin());
 
-    _readState.reset(new ReadState{std::move(fileData),
-                                   std::move(context),
+    _readState.reset(new ReadState{std::move(context),
                                    std::move(idList),
                                    currentIndex});
 }

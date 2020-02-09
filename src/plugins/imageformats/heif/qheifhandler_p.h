@@ -85,12 +85,10 @@ public:
 private:
     struct ReadState
     {
-        ReadState(QByteArray&& data,
-                  std::shared_ptr<heif_context>&& ctx,
+        ReadState(std::shared_ptr<heif_context>&& ctx,
                   std::vector<heif_item_id>&& ids,
                   int index);
 
-        const QByteArray fileData;
         const std::shared_ptr<heif_context> context;
         const std::vector<heif_item_id> idList;
         int currentIndex{};
