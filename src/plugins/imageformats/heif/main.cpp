@@ -42,9 +42,6 @@
 
 #ifndef QT_NO_IMAGEFORMATPLUGIN
 
-#ifdef QT_NO_IMAGEFORMAT_WEBP
-#undef QT_NO_IMAGEFORMAT_WEBP
-#endif
 #include "qheifhandler_p.h"
 
 #include <qiodevice.h>
@@ -79,10 +76,8 @@ QHeifPlugin::Capabilities QHeifPlugin::capabilities(QIODevice *device, const QBy
         }
     }
 
-    using F = QHeifHandler::Format;
     Capabilities caps{};
-
-    if (device->isReadable() && QHeifHandler::canReadFrom(*device) != F::None) {
+    if (device->isReadable() && QHeifHandler::canReadFrom(*device)) {
         caps |= CanRead;
     }
 

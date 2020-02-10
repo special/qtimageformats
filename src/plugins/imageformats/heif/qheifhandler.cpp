@@ -50,6 +50,7 @@
 #include <type_traits>
 
 constexpr int kDefaultQuality = 50;  // TODO: maybe adjust this
+constexpr int kHeaderSize = 12;
 
 QHeifHandler::QHeifHandler() :
     QImageIOHandler(),
@@ -80,69 +81,40 @@ void QHeifHandler::updateDevice()
     }
 }
 
-QHeifHandler::Format QHeifHandler::canReadFrom(QIODevice& device)
+bool QHeifHandler::canReadFrom(QIODevice& device)
 {
-    // read beginning of ftyp box at beginning of file
-    constexpr int kHeaderSize = 12;
     QByteArray header = device.peek(kHeaderSize);
-
     if (header.size() != kHeaderSize) {
-        return Format::None;
+        return false;
     }
 
-    // skip first four bytes, which contain box size
-    const QByteArray w1 = header.mid(4, 4);
-    const QByteArray w2 = header.mid(8, 4);
-
-    if (w1 != "ftyp") {
-        // not an ftyp box
-        return Format::None;
-    }
-
-    // brand follows box name, determines format
-    if (w2 == "mif1") {
-        return Format::Heif;
-    } else if (w2 == "msf1") {
-        return Format::HeifSequence;
-    } else if (w2 == "heic" || w2 == "heix") {
-        return Format::Heic;
-    } else if (w2 == "hevc" || w2 == "hevx") {
-        return Format::HeicSequence;
-    } else {
-        return Format::None;
-    }
+    auto result = heif_check_filetype(reinterpret_cast<const uint8_t*>(header.constData()),
+                                      header.size());
+    return result == heif_filetype_yes_supported || result == heif_filetype_maybe;
 }
 
 bool QHeifHandler::canRead() const
 {
-    if (!device()) {
+    if (!device() || !canReadFrom(*device())) {
         return false;
     }
-
-    auto mimeFormat = canReadFrom(*device());
 
     // Other image plugins set the format here. Not sure if it is really
     // necessary or what it accomplishes.
-    switch (mimeFormat) {
-    case Format::Heif:
-        setFormat("heif");
-        return true;
-
-    case Format::HeifSequence:
-        setFormat("heifs");
-        return true;
-
-    case Format::Heic:
+    QByteArray header = device()->peek(kHeaderSize);
+    QLatin1String mimeType(heif_get_file_mime_type(reinterpret_cast<const uint8_t*>(header.constData()),
+                                                   header.size()));
+    if (mimeType == QLatin1String("image/heic")) {
         setFormat("heic");
-        return true;
-
-    case Format::HeicSequence:
+    } else if (mimeType == QLatin1String("image/heif")) {
+        setFormat("heif");
+    } else if (mimeType == QLatin1String("image/heic-sequence")) {
         setFormat("heics");
-        return true;
-
-    default:
-        return false;
+    } else if (mimeType == QLatin1String("image/heif-sequence")) {
+        setFormat("heifs");
     }
+
+    return true;
 }
 
 namespace {

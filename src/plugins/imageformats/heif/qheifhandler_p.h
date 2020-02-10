@@ -51,15 +51,6 @@
 class QHeifHandler : public QImageIOHandler
 {
 public:
-    enum class Format
-    {
-        None,
-        Heif,
-        HeifSequence,
-        Heic,
-        HeicSequence,
-    };
-
     explicit QHeifHandler();
     virtual ~QHeifHandler();
 
@@ -80,7 +71,7 @@ public:
     void setOption(ImageOption opt, const QVariant& value) override;
     bool supportsOption(ImageOption opt) const override;
 
-    static Format canReadFrom(QIODevice& device);
+    static bool canReadFrom(QIODevice& device);
 
 private:
     struct ReadState
